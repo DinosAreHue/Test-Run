@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browser AI</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #6fa8dc;
+    font-family: Arial, sans-serif;
+}
+
+#grid {
+    position: fixed;
+    inset: -50px;
+    z-index: 0;
+    background-image:
+        linear-gradient(rgba(255,255,255,.25) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.25) 1px, transparent 1px);
+    background-size: 40px 40px;
+    transition: transform .08s linear;
+}
+
+/* STATUS PILL */
+#status {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    background: rgba(255,255,255,.9);
+    color: #477eaf;
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 14px;
+    min-width: 160px;
+    text-align: center;
+    overflow: hidden;
+}
+#status-bar {
+    position: absolute;
+    left: 0; bottom: 0;
+    height: 3px;
+    width: 0%;
+    background: #6fa8dc;
+    transition: width .2s;
+}
+
+#messages {
+    position: fixed;
+    top: 50px;
+    left: 20px;
+    right: 20px;
+    bottom: 90px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    padding: 10px;
+    z-index: 2;
+    scrollbar-width: none;
+}
+#messages::-webkit-scrollbar { display: none; }
+
+.message-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: 430px;
+    animation: appear .2s ease;
+}
+.ai-row { align-self: flex-start; }
+.user-row { align-self: flex-end; flex-direction: row-reverse; }
+
+.message {
+    max-width: 340px;
+    padding: 11px 15px;
+    font-size: 15px;
+    line-height: 1.4;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+.message.ai {
+    background: rgba(255,255,255,.88);
+    color: #477eaf;
+    border-radius: 18px;
+    border-bottom-left-radius: 5px;
+}
+.message.user {
+    background: white;
+    color: #477eaf;
+    border-radius: 18px;
+    border-bottom-right-radius: 5px;
+}
+
+.ai-logo, .person-logo {
+    width: 28px; height: 28px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.ai-logo { background: white; }
+.ai-diamond {
+    width: 11px; height: 11px;
+    background: #6fa8dc;
+    transform: rotate(45deg);
+    border-radius: 3px;
+}
+.person-logo { background: #ff3b30; position: relative; }
+.person-head {
+    width: 9px; height: 9px;
+    background: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 5px;
+}
+.person-head::after {
+    content: "";
+    position: absolute;
+    width: 16px; height: 9px;
+    background: white;
+    border-radius: 10px 10px 5px 5px;
+    left: -3.5px; top: 10px;
+}
+
+#input-area {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 7px;
+    z-index: 5;
+}
+#text-box {
+    width: 300px; height: 42px;
+    border: none; outline: none;
+    padding: 0 17px;
+    background: white;
+    border-radius: 22px;
+    font-size: 14px;
+    box-shadow: 0 4px 15px rgba(0,0,0,.08);
+}
+#send {
+    width: 44px; height: 42px;
+    border: none;
+    background: white;
+    border-radius: 22px;
+    font-size: 20px;
+    color: #477eaf;
+    cursor: pointer;
+    transition: .15s;
+}
+#send:hover { transform: scale(1.08); }
+#send:active { transform: scale(.94); }
+#send:disabled { opacity: .5; cursor: default; transform: none; }
+
+.thinking { display: flex; gap: 4px; align-items: center; }
+.dot {
+    width: 5px; height: 5px;
+    background: #477eaf;
+    border-radius: 50%;
+    animation: bounce 1s infinite;
+}
+.dot:nth-child(2) { animation-delay: .15s; }
+.dot:nth-child(3) { animation-delay: .3s; }
+
+@keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-4px); }
+}
+@keyframes appear {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media(max-width:600px) {
+    #text-box { width: calc(100vw - 90px); }
+    .message { max-width: 260px; }
+}
+</style>
+</head>
+
+<body>
+
+<div id="grid"></div>
+
+<div id="status">
+    <span id="status-text">Starting…</span>
+    <div id="status-bar"></div>
+</div>
+
+<div id="messages"></div>
+
+<div id="input-area">
+    <input id="text-box" placeholder="Talk to the AI..." autocomplete="off">
+    <button id="send">→</button>
+</div>
+
+<script type="module">
+
+/* =====================================================
+   ELEMENTS
+===================================================== */
+
+const grid = document.getElementById("grid");
+const messages = document.getElementById("messages");
+const input = document.getElementById("text-box");
+const send = document.getElementById("send");
+const statusText = document.getElementById("status-text");
+const statusBar = document.getElementById("status-bar");
+
+document.addEventListener("mousemove", e => {
+    const x = (e.clientX / innerWidth - .5) * 40;
+    const y = (e.clientY / innerHeight - .5) * 40;
+    grid.style.transform = `translate(${x}px,${y}px)`;
+});
+
+
+/* =====================================================
+   LANGUAGE MODEL (runs locally in the browser)
+===================================================== */
+
+/*
+   Uses Transformers.js + SmolLM2 (small instruct model).
+   The first visit downloads the model (~200-300MB);
+   after that the browser caches it.
+
+   Swap MODEL_ID for a bigger/smarter one if you like:
+     "onnx-community/Qwen2.5-0.5B-Instruct"
+     "onnx-community/SmolLM2-135M-Instruct"  (smaller, dumber)
+*/
+
+const MODEL_ID = "onnx-community/SmolLM2-360M-Instruct";
+
+let generator = null;
+let TextStreamerClass = null;
+let modelState = "loading";   // loading | ready | failed
+
+function setStatus(text, pct) {
+    statusText.textContent = text;
+    if (pct !== undefined) statusBar.style.width = pct + "%";
+}
+
+async function loadModel() {
+    try {
+        setStatus("Loading language model…", 0);
+
+        const lib = await import(
+            "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3"
+        );
+
+        TextStreamerClass = lib.TextStreamer;
+
+        /* Try several model/precision combos until one downloads.
+           (A missing file on Hugging Face shows up in the browser
+           as a generic "Failed to fetch", so we just try the next.) */
+        const QWEN_15 = "onnx-community/Qwen2.5-1.5B-Instruct";   // smartest, ~1GB
+        const QWEN_05 = "onnx-community/Qwen2.5-0.5B-Instruct";   // good balance, ~400MB
+
+        const candidates = [];
+
+        if (navigator.gpu) {
+            /* WebGPU is fast enough for the 1.5B model */
+            candidates.push(
+                { id: QWEN_15, device: "webgpu", dtype: "q4f16" },
+                { id: QWEN_05, device: "webgpu", dtype: "q4f16" }
+            );
+        }
+
+        candidates.push(
+            { id: QWEN_05, device: "wasm", dtype: "q4" },
+            { id: QWEN_05, device: "wasm", dtype: "q8" },
+            { id: MODEL_ID, device: "wasm", dtype: "q4" },
+            { id: MODEL_ID, device: "wasm", dtype: "q8" },
+            { id: "onnx-community/SmolLM2-135M-Instruct", device: "wasm", dtype: "q8" }
+        );
+
+        let lastError = null;
+
+        for (const c of candidates) {
+            const files = {};
+            try {
+                setStatus(`Trying ${c.id.split("/")[1]} (${c.dtype}, ${c.device})…`, 0);
+
+                generator = await lib.pipeline("text-generation", c.id, {
+                    dtype: c.dtype,
+                    device: c.device,
+                    progress_callback: p => {
+                        if (p.status === "progress" && p.file) {
+                            files[p.file] = { loaded: p.loaded, total: p.total };
+                            let loaded = 0, total = 0;
+                            for (const f in files) {
+                                loaded += files[f].loaded;
+                                total += files[f].total;
+                            }
+                            const pct = total ? Math.round(loaded / total * 100) : 0;
+                            setStatus(`Downloading model… ${pct}%`, pct);
+                        }
+                    }
+                });
+                break;
+            } catch (e) {
+                console.warn("Model attempt failed:", c, e);
+                lastError = e;
+                generator = null;
+            }
+        }
+
+        if (!generator) throw lastError || new Error("No model could be loaded");
+
+        modelState = "ready";
+        setStatus("Language model ready", 100);
+        setTimeout(() => { statusBar.style.width = "0%"; }, 600);
+
+    } catch (err) {
+        console.error(err);
+        modelState = "failed";
+        setStatus("Model failed: " + String(err.message || err).slice(0, 60), 0);
+    }
+}
+
+loadModel();
+
+
+/* =====================================================
+   MEMORY SYSTEM
+===================================================== */
+
+let memory = JSON.parse(localStorage.getItem("browserAI_memory") || "{}");
+
+function saveMemory() {
+    localStorage.setItem("browserAI_memory", JSON.stringify(memory));
+}
+
+let conversation = JSON.parse(localStorage.getItem("browserAI_conversation") || "[]");
+
+function saveConversation() {
+    conversation = conversation.slice(-30);
+    localStorage.setItem("browserAI_conversation", JSON.stringify(conversation));
+}
+
+function rememberConversation(role, text) {
+    conversation.push({ role, text, time: Date.now() });
+    saveConversation();
+}
+
+
+/* =====================================================
+   UI HELPERS
+===================================================== */
+
+function aiLogo() {
+    const logo = document.createElement("div");
+    logo.className = "ai-logo";
+    logo.innerHTML = `<div class="ai-diamond"></div>`;
+    return logo;
+}
+
+function personLogo() {
+    const logo = document.createElement("div");
+    logo.className = "person-logo";
+    logo.innerHTML = `<div class="person-head"></div>`;
+    return logo;
+}
+
+function addMessage(text, type) {
+    const row = document.createElement("div");
+    row.className = `message-row ${type}-row`;
+
+    const bubble = document.createElement("div");
+    bubble.className = `message ${type}`;
+    bubble.textContent = text;
+
+    row.appendChild(type === "ai" ? aiLogo() : personLogo());
+    row.appendChild(bubble);
+
+    messages.appendChild(row);
+    messages.scrollTop = messages.scrollHeight;
+
+    return bubble;
+}
+
+function showThinking() {
+    const row = document.createElement("div");
+    row.className = "message-row ai-row";
+    row.id = "thinking";
+
+    const bubble = document.createElement("div");
+    bubble.className = "message ai";
+    bubble.innerHTML = `
+        <div class="thinking">
+            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>`;
+
+    row.appendChild(aiLogo());
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function removeThinking() {
+    const t = document.getElementById("thinking");
+    if (t) t.remove();
+}
+
+
+/* =====================================================
+   TEXT HELPERS
+===================================================== */
+
+function clean(text) {
+    return text.toLowerCase().replace(/[?!.,]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function words(text) {
+    return clean(text).split(" ").filter(Boolean);
+}
+
+function similarity(a, b) {
+    const A = new Set(words(a));
+    const B = new Set(words(b));
+    if (!A.size || !B.size) return 0;
+    let common = 0;
+    for (const w of A) if (B.has(w)) common++;
+    return common / Math.max(A.size, B.size);
+}
+
+
+/* =====================================================
+   TEACHING
+===================================================== */
+
+function teach(text) {
+    const fact = text.substring(6).trim();
+
+    if (!fact) return `Try teaching me something after "teach:".`;
+
+    const match = fact.match(/^(.+?)\s+(is|are|equals|=)\s+(.+)$/i);
+
+    if (match) {
+        memory[clean(match[1])] = match[3].trim();
+        saveMemory();
+        return `Got it. I'll remember that ${match[1]} is ${match[3].trim()}.`;
+    }
+
+    memory["fact_" + Date.now()] = fact;
+    saveMemory();
+    return "Got it. I've learned that.";
+}
+
+function searchMemory(question) {
+    const q = clean(question);
+    let best = null, bestScore = 0;
+
+    for (const key in memory) {
+        if (key.startsWith("fact_")) continue;
+        const score = similarity(q, key);
+        if (score > bestScore) { bestScore = score; best = key; }
+    }
+
+    /* Stricter than before so the model handles most questions */
+    if (best && bestScore >= .6) return memory[best];
+    return null;
+}
+
+function detectPersonalInfo(text) {
+    const patterns = [
+        { regex: /^my name is (.+)$/i, key: "name" },
+        { regex: /^i am (.+)$/i, key: "user description" },
+        { regex: /^i like (.+)$/i, key: "things I like" },
+        { regex: /^i love (.+)$/i, key: "things I love" },
+        { regex: /^my favorite (.+?) is (.+)$/i, special: true }
+    ];
+
+    for (const p of patterns) {
+        const match = text.match(p.regex);
+        if (!match) continue;
+
+        if (p.special) {
+            memory["favorite " + clean(match[1])] = match[2].trim();
+            saveMemory();
+            return `I'll remember that your favorite ${match[1]} is ${match[2]}.`;
+        }
+
+        memory[p.key] = match[1].trim();
+        saveMemory();
+        return "I'll remember that.";
+    }
+    return null;
+}
+
+function calculate(text) {
+    if (!/^[0-9+\-*/().%\s]+$/.test(text)) return null;
+    try {
+        const result = Function(`"use strict"; return (${text})`)();
+        if (typeof result === "number" && Number.isFinite(result)) return String(result);
+    } catch {}
+    return null;
+}
+
+
+/* =====================================================
+   LLM CHAT
+===================================================== */
+
+function buildSystemPrompt() {
+    let s =
+        "You are a friendly, helpful AI assistant living inside a web page. " +
+        "Answer clearly and concisely, in a few sentences unless asked for more. " +
+        "If you don't know something, say so instead of guessing.";
+
+    const known = Object.entries(memory)
+        .map(([k, v]) => k.startsWith("fact_") ? v : `${k}: ${v}`);
+
+    if (known.length) {
+        s += "\n\nThings the user has told you (use them when relevant):\n- " +
+             known.slice(-20).join("\n- ");
+    }
+    return s;
+}
+
+async function askModel(onToken) {
+    const chat = [{ role: "system", content: buildSystemPrompt() }];
+
+    /* Recent history (the newest user message is already in it) */
+    for (const m of conversation.slice(-10)) {
+        chat.push({
+            role: m.role === "ai" ? "assistant" : "user",
+            content: m.text
+        });
+    }
+
+    let full = "";
+
+    const streamer = new TextStreamerClass(generator.tokenizer, {
+        skip_prompt: true,
+        skip_special_tokens: true,
+        callback_function: piece => {
+            full += piece;
+            onToken(full);
+        }
+    });
+
+    const out = await generator(chat, {
+        max_new_tokens: 256,
+        do_sample: true,
+        temperature: 0.6,
+        top_p: 0.9,
+        repetition_penalty: 1.1,
+        streamer
+    });
+
+    const last = out[0].generated_text.at(-1).content;
+    return (last || full).trim();
+}
+
+
+/* =====================================================
+   RULES FIRST, MODEL SECOND
+===================================================== */
+
+/* Returns a string for instant rule-based answers, or null to use the model */
+function quickAnswer(text) {
+    const q = clean(text);
+
+    if (q.startsWith("teach:")) return teach(text);
+
+    const personal = detectPersonalInfo(text);
+    if (personal) return personal;
+
+    if (q === "forget everything" || q === "forget all" || q === "reset memory") {
+        memory = {};
+        saveMemory();
+        return "Okay. I've forgotten everything I learned.";
+    }
+
+    if (q === "clear conversation" || q === "clear chat") {
+        conversation = [];
+        saveConversation();
+        messages.innerHTML = "";
+        return "Conversation cleared.";
+    }
+
+    if (q === "what do you know" || q === "what have you learned" || q === "show memory") {
+        const entries = Object.entries(memory).filter(([k]) => !k.startsWith("fact_"));
+        if (!entries.length) return "I haven't learned anything yet.";
+        return "I remember: " + entries.map(([k, v]) => `${k} = ${v}`).join("; ");
+    }
+
+    if (q.includes("what is my name") || q.includes("whats my name")) {
+        return memory.name ? `Your name is ${memory.name}.` : "You haven't taught me your name yet.";
+    }
+
+    if (/^(what time is it|what is the time|whats the time|current time|time)$/.test(q)) {
+        return `It's ${new Date().toLocaleTimeString()}.`;
+    }
+
+    if (/^(what is the date|whats the date|what day is it|what is today|whats today|today|date|todays date)$/.test(q)) {
+        return `Today is ${new Date().toLocaleDateString()}.`;
+    }
+
+    const math = calculate(text);
+    if (math !== null) return math;
+
+    const remembered = searchMemory(text);
+    if (remembered) return remembered;
+
+    return null;
+}
+
+function fallbackWithoutModel(text) {
+    const q = clean(text);
+
+    if (/^(hello|hi|hey|yo|sup|hiya)$/.test(q)) return "Hey! What's up?";
+
+    if (modelState === "loading") {
+        return "My language model is still loading — give me a moment and ask again. (Teaching and math already work.)";
+    }
+
+    return "My language model couldn't load in this browser, so I can only handle things you've taught me, plus math. Try a recent Chrome or Edge.";
+}
+
+
+/* =====================================================
+   SEND
+===================================================== */
+
+let busy = false;
+
+async function sendMessage() {
+    const text = input.value.trim();
+    if (!text || busy) return;
+
+    busy = true;
+    send.disabled = true;
+
+    addMessage(text, "user");
+    rememberConversation("user", text);
+    input.value = "";
+
+    showThinking();
+
+    try {
+        const quick = quickAnswer(text);
+
+        if (quick !== null) {
+            await new Promise(r => setTimeout(r, 250 + Math.random() * 300));
+            removeThinking();
+            addMessage(quick, "ai");
+            rememberConversation("ai", quick);
+        }
+        else if (modelState === "ready") {
+            let bubble = null;
+
+            const reply = await askModel(partial => {
+                if (!bubble) {
+                    removeThinking();
+                    bubble = addMessage("", "ai");
+                }
+                bubble.textContent = partial;
+                messages.scrollTop = messages.scrollHeight;
+            });
+
+            removeThinking();
+
+            if (!bubble) bubble = addMessage("", "ai");
+            bubble.textContent = reply || "Hmm, I couldn't come up with anything.";
+
+            rememberConversation("ai", reply);
+        }
+        else {
+            await new Promise(r => setTimeout(r, 300));
+            removeThinking();
+            const r = fallbackWithoutModel(text);
+            addMessage(r, "ai");
+            rememberConversation("ai", r);
+        }
+    } catch (err) {
+        console.error(err);
+        removeThinking();
+        addMessage("Something went wrong while thinking. Try again?", "ai");
+    }
+
+    busy = false;
+    send.disabled = false;
+    input.focus();
+}
+
+send.addEventListener("click", sendMessage);
+
+input.addEventListener("keydown", e => {
+    if (e.key === "Enter") sendMessage();
+});
+
+
+/* =====================================================
+   STARTUP
+===================================================== */
+
+setTimeout(() => {
+    addMessage(
+        `Hey! I'm ready. Ask me anything, or teach me things with "teach:" and I'll remember them.`,
+        "ai"
+    );
+}, 300);
+
+</script>
+
+</body>
+</html>
